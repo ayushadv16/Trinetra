@@ -1,0 +1,584 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>त्रिNetraAI Intelligent Train Traffic Control System</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Roboto+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@3.9.1/dist/chart.min.js"></script>
+    
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            -ms-overflow-style: none;
+            scrollbar-width: none;
+        }
+        body::-webkit-scrollbar { display: none; }
+        .grid-bg {
+            background-image:
+                linear-gradient(to right, rgba(255, 255, 255, 0.05) 1px, transparent 1px),
+                linear-gradient(to bottom, rgba(255, 255, 255, 0.05) 1px, transparent 1px);
+            background-size: 20px 20px;
+        }
+        
+        /* Table Scrollbar */
+        .table-scrollbar::-webkit-scrollbar { width: 6px; height: 6px; }
+        .table-scrollbar::-webkit-scrollbar-track { background-color: #1f2937; }
+        .table-scrollbar::-webkit-scrollbar-thumb { background-color: #4b5563; border-radius: 3px; }
+
+        /* Alerts */
+        .alert-critical { border-left-color: #ef4444; }
+        .alert-warning { border-left-color: #facc15; }
+        .alert-info { border-left-color: #3b82f6; }
+        .alert-ok { border-left-color: #22c55e; }
+
+        /* --- Simulator Styles (Adapted) --- */
+        #simulation-container {
+            font-family: 'Roboto Mono', monospace;
+            background-color: #1a202c;
+            border: 1px solid #4a5568;
+            box-shadow: inset 0 0 15px rgba(0,0,0,0.5);
+            transition: background-color 2s linear;
+        }
+        body.is-night #simulation-container { background-color: #0c1445; }
+        
+        .track {
+            position: absolute; height: 10px; background-color: #4a5568;
+            background-image: linear-gradient(#a0aec0, #a0aec0), linear-gradient(#a0aec0, #a0aec0), repeating-linear-gradient(90deg, #657186 0, #657186 4px, transparent 4px, transparent 12px);
+            background-size: 100% 2px, 100% 2px, auto 100%;
+            background-repeat: no-repeat, no-repeat, repeat;
+            background-position: 0 0, 0 100%, 0 0;
+        }
+        .diverging-track { transition: opacity 0.3s ease; opacity: 0.7; }
+        .diverging-track.connected { opacity: 1; }
+
+        .platform { position: absolute; background-color: #4b5563; border: 1px solid #6b7280; box-shadow: inset 0 2px 4px rgba(0,0,0,0.4); height: 24px; }
+        .platform::after { content: ''; position: absolute; bottom: 2px; left: 0; width: 100%; height: 3px; background-color: #facc15; border-top: 1px dashed #4a5568; }
+        .platform-text { position: absolute; background: rgba(17, 24, 39, 0.8); color: #fcd34d; font-weight: bold; font-size: 14px; white-space: nowrap; padding: 2px 6px; border-radius: 4px; border: 1px solid #4a5568; }
+        
+        .point { position: absolute; width: 0; height: 0; border-style: solid; cursor: pointer; transition: border-color 0.3s, transform 0.3s, opacity 0.3s; }
+        .point.straight { border-width: 7px 0 7px 14px; border-color: transparent transparent transparent #48bb78; }
+        .point.diverted { border-width: 7px 14px 7px 0; border-color: transparent #f56565 transparent transparent; }
+        .point.locked { cursor: not-allowed; opacity: 0.6; }
+        .point-label { position: absolute; font-size: 11px; color: #a0aec0; white-space: nowrap; }
+
+        .train { position: absolute; width: 50px; height: 16px; border: 1px solid #a0aec0; border-radius: 4px; color: white; font-size: 11px; text-align: center; line-height: 14px; z-index: 10; transition: left 0.1s linear, top 0.1s linear; box-shadow: 0 4px 8px rgba(0,0,0,0.6), inset 0 1px 1px rgba(255,255,255,0.2); border-bottom: 2px solid #4a5568; }
+        .train .headlight { position: absolute; top: 50%; transform: translateY(-50%); width: 6px; height: 6px; background-color: #fefcbf; border-radius: 50%; box-shadow: 0 0 8px 2px #fefcbf; transition: box-shadow 2s linear; }
+        body.is-night .train .headlight { box-shadow: 0 0 18px 6px #fefcbf; }
+        .train.train1 { background-image: linear-gradient(to bottom, #63b3ed, #3182ce); }
+        .train.train2 { background-image: linear-gradient(to bottom, #68d391, #38a169); }
+        .train.train3 { background-image: linear-gradient(to bottom, #f687b3, #d53f8c); }
+
+        .station-label-sim { position: absolute; font-size: 1.75rem; font-weight: bold; color: #90cdf4; text-shadow: 0 0 5px #63b3ed, 1px 1px 3px #1a202c; }
+        body.is-night .station-label-sim { color: #e2e8f0; }
+        
+        #rain-container { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; overflow: hidden; z-index: 50; }
+        .raindrop { position: absolute; bottom: 100%; width: 1px; height: 50px; background: linear-gradient(to top, rgba(255,255,255,0) 0%, rgba(255,255,255,0.4) 100%); animation: fall linear infinite; }
+        @keyframes fall { to { transform: translateY(100vh); } }
+
+        .control-button { transition: background-color 0.2s, transform 0.2s; }
+        .control-button:hover { transform: translateY(-2px); }
+        .control-button:active { transform: translateY(0); }
+        
+        .emergency-stop-btn { animation: pulse-red 2s infinite; }
+        @keyframes pulse-red {
+            0% { box-shadow: 0 0 0 0 rgba(252, 129, 129, 0.7); }
+            70% { box-shadow: 0 0 0 10px rgba(252, 129, 129, 0); }
+            100% { box-shadow: 0 0 0 0 rgba(252, 129, 129, 0); }
+        }
+
+        /* Automation Toggle */
+        .toggle-switch { position: relative; display: inline-block; width: 120px; height: 34px; }
+        .toggle-switch input { opacity: 0; width: 0; height: 0; }
+        .slider { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: #4a5568; transition: .4s; border-radius: 34px; }
+        .slider:before { position: absolute; content: ""; height: 26px; width: 26px; left: 4px; bottom: 4px; background-color: white; transition: .4s; border-radius: 50%; }
+        input:checked + .slider { background-color: #38a169; }
+        input:checked + .slider:before { transform: translateX(86px); }
+        .slider-text { position: absolute; top: 50%; transform: translateY(-50%); font-size: 12px; font-weight: bold; color: white; transition: .4s; }
+        .slider-text.manual { left: 15px; }
+        .slider-text.auto { right: 20px; }
+        input:checked ~ .slider-text.manual { opacity: 0; }
+        input ~ .slider-text.auto { opacity: 0; }
+        input:checked ~ .slider-text.auto { opacity: 1; }
+
+    </style>
+</head>
+<body class="bg-gray-900 text-gray-200 grid-bg overflow-hidden">
+    <div class="flex flex-col h-screen">
+       
+
+        <!-- Header -->
+        <header class="bg-gray-900/70 backdrop-blur-sm border-b border-gray-700/50 shadow-lg z-30">
+            <div class="container mx-auto px-4 py-3 flex justify-between items-center">
+                <div class="flex items-center space-x-4">
+                    <i class="fas fa-train text-2xl text-orange-500"></i>
+                    <h1 class="text-xl font-bold tracking-wider">Indian Railways Operations Control Center</h1>
+                    <span class="text-sm text-gray-400 font-mono hidden md:inline">- Byculla/Chinchpokli Section</span>
+                </div>
+                <div class="flex items-center space-x-6">
+                    <div class="text-right">
+                        <div id="current-time" class="font-mono text-lg font-semibold"></div>
+                        <div id="current-date" class="text-xs text-gray-400"></div>
+                    </div>
+                     <div class="flex items-center space-x-2 bg-gray-800 pl-3 pr-2 py-1 rounded-full">
+                        <span class="text-sm font-medium">Operator: Ayush P</span>
+                        <img class="h-8 w-8 rounded-full object-cover" src="https://placehold.co/100x100/4A5568/E2E8F0?text=SK" alt="Operator Avatar">
+                     </div>
+                </div>
+            </div>
+        </header>
+
+        <!-- Main Content -->
+        <main class="flex-grow flex p-4 space-x-4 overflow-hidden">
+            
+            <!-- Left Panel: Train Info & Alerts -->
+            <div class="w-1/3 flex flex-col space-y-4">
+                <!-- Active Trains -->
+                <div class="bg-gray-800/50 backdrop-blur-md rounded-lg shadow-xl flex-grow flex flex-col border border-gray-700/50">
+                    <div class="p-4 border-b border-gray-700/50">
+                        <h2 class="text-lg font-semibold flex items-center"><i class="fas fa-train mr-3 text-gray-400"></i>Active Trains</h2>
+                        <div class="mt-3 relative">
+                            <input type="text" id="train-search" placeholder="Search Train ID or Status..." class="w-full bg-gray-900 border border-gray-600 rounded-md py-2 pl-10 pr-4 focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm">
+                            <i class="fas fa-search absolute left-3 top-1/2 -translate-y-1/2 text-gray-500"></i>
+                        </div>
+                    </div>
+                    <div class="flex-grow overflow-y-auto table-scrollbar">
+                        <table class="w-full text-sm text-left">
+                            <thead class="bg-gray-900/70 sticky top-0">
+                                <tr>
+                                    <th class="p-3 font-semibold tracking-wider">ID</th>
+                                    <th class="p-3 font-semibold tracking-wider">Status</th>
+                                    <th class="p-3 font-semibold tracking-wider">Speed</th>
+                                    <th class="p-3 font-semibold tracking-wider">Track</th>
+                                </tr>
+                            </thead>
+                            <tbody id="train-table-body" class="divide-y divide-gray-700/50"></tbody>
+                        </table>
+                    </div>
+                </div>
+                <!-- Alerts -->
+                <div class="bg-gray-800/50 backdrop-blur-md rounded-lg shadow-xl h-2/5 flex flex-col border border-gray-700/50">
+                     <div class="p-4 border-b border-gray-700/50">
+                        <h2 class="text-lg font-semibold flex items-center"><i class="fas fa-exclamation-triangle mr-3 text-yellow-400"></i>Event Log</h2>
+                    </div>
+                    <div id="alerts-log" class="flex-grow overflow-y-auto p-4 space-y-3 table-scrollbar font-mono text-xs"></div>
+                </div>
+            </div>
+
+            <!-- Center Panel: Track Map & Controls -->
+            <div class="w-2/3 flex flex-col space-y-4">
+                 <!-- Main Track Visualization -->
+                <div id="simulation-container" class="relative flex-grow w-full overflow-hidden rounded-lg">
+                     <div id="rain-container"></div>
+                     <div class="station-label-sim" style="left: 5%; top: 5%;">BYCULLA</div>
+                     <div class="station-label-sim" style="right: 5%; top: 5%;">CHINCHPOKLI</div>
+                     <div id="sim-clock" class="absolute font-mono text-xl" style="right: 5%; top: 12%;">08:00:00</div>
+
+                     <!-- Platforms & Tracks -->
+                     <div class="platform" style="left: 10%; top: calc(20% - 12px); width: 15%;"></div><div class="platform-text" style="left: 14%; top: calc(20% - 35px);">PF NO 1</div>
+                     <div class="platform" style="left: 10%; top: calc(40% - 12px); width: 15%;"></div><div class="platform-text" style="left: 14%; top: calc(40% - 35px);">PF NO 2</div>
+                     <div class="platform" style="left: 10%; top: calc(50% - 12px); width: 15%;"></div><div class="platform-text" style="left: 14%; top: calc(50% - 35px);">PF NO 3</div>
+                     <div class="platform" style="left: 10%; top: calc(60% - 12px); width: 15%;"></div><div class="platform-text" style="left: 14%; top: calc(60% - 35px);">PF NO 4</div>
+                     <div class="platform" style="left: 65%; top: calc(30% - 12px); width: 10%;"></div><div class="platform-text" style="left: 67%; top: calc(30% - 35px);">PF No. 1</div>
+                     <div class="platform" style="right: 15%; top: calc(40% - 12px); width: 15%;"></div><div class="platform-text" style="right: 19%; top: calc(40% - 35px);">PF NO 2</div>
+                     <div class="track" id="track-dn-ll" style="left: 5%; top: calc(30% - 2px); width: 90%;"></div><div class="track" id="track-up-ll" style="left: 5%; top: calc(40% - 2px); width: 90%;"></div><div class="track" id="track-dn-th" style="left: 5%; top: calc(50% - 2px); width: 90%;"></div><div class="track" id="track-up-th" style="left: 5%; top: calc(60% - 2px); width: 90%;"></div>
+                     <div id="diverge-s39" class="track diverging-track" style="transform-origin: left; transform: rotate(-5.7deg); left: 45%; top: calc(37% - 2px); width: 15%;"></div><div id="diverge-s34" class="track diverging-track" style="transform-origin: right; transform: rotate(-5.7deg); left: 50%; top: calc(57% - 2px); width: 15%;"></div>
+                     <div id="diverge-s25" class="track diverging-track" style="transform-origin: left; transform: rotate(5.7deg); left: 35%; top: calc(53% - 2px); width: 15%;"></div>
+                     <div id="point-s39" class="point straight" style="left: 44.5%; top: calc(40% - 7px);"></div><div class="point-label" style="left: 43%; top: calc(40% + 10px);">S-39</div><div id="point-s34" class="point straight" style="left: 65.5%; top: calc(60% - 7px);"></div><div class="point-label" style="left: 66.5%; top: calc(60% + 10px);">S-34</div>
+                     <div id="point-s25" class="point straight" style="left: 34.5%; top: calc(50% - 7px);"></div><div class="point-label" style="left: 33%; top: calc(50% + 10px);">S-25</div>
+                     
+                     <!-- Trains -->
+                     <div id="train1" class="train train1">TRN1<div class="headlight"></div></div>
+                     <div id="train2" class="train train2">TRN2<div class="headlight"></div></div>
+                     <div id="train3" class="train train3">TRN3<div class="headlight"></div></div>
+                </div>
+                <!-- Control & Performance Panel -->
+                <div class="h-1/3 flex space-x-4">
+                    <div class="w-1/2 bg-gray-800/50 backdrop-blur-md rounded-lg shadow-xl border border-gray-700/50 p-4 flex flex-col">
+                        <h3 class="text-md font-semibold mb-2"><i class="fas fa-cogs mr-2 text-gray-400"></i>System Controls</h3>
+                        <div class="grid grid-cols-2 gap-4 flex-grow">
+                             <button id="emergency-stop-btn" title="Emergency Stop All Trains" class="emergency-stop-btn control-button bg-red-800 hover:bg-red-700 text-white font-bold rounded-lg shadow-lg flex items-center justify-center text-lg">HALT</button>
+                             <div class="flex flex-col items-center justify-center">
+                                <label class="toggle-switch">
+                                    <input type="checkbox" id="automation-toggle">
+                                    <span class="slider"></span>
+                                    <span class="slider-text manual">MANUAL</span>
+                                    <span class="slider-text auto">AUTO</span>
+                                </label>
+                             </div>
+                             <div class="flex flex-col items-center justify-center">
+                                <p class="text-sm text-gray-400">System running without signals.</p>
+                             </div>
+                             <button id="reset-btn" title="Reset Simulation" class="control-button bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-lg flex items-center justify-center"><i class="fas fa-redo-alt mr-2"></i>Reset Sim</button>
+                        </div>
+                    </div>
+                    <div class="w-1/2 bg-gray-800/50 backdrop-blur-md rounded-lg shadow-xl border border-gray-700/50 p-4 flex flex-col">
+                        <h3 class="text-md font-semibold mb-2"><i class="fas fa-tachometer-alt mr-2 text-gray-400"></i>Selected Train Control: <span id="selected-train-label" class="font-mono text-blue-300"></span></h3>
+                        <div id="train-controls" class="flex-grow flex flex-col justify-between">
+                            <div class="flex items-center justify-around space-x-4">
+                                <button id="start-btn" title="Start Train" class="control-button bg-green-600 hover:bg-green-500 text-white font-bold p-2 rounded-lg shadow-md"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg></button>
+                                <button id="stop-btn" title="Stop Train" class="control-button bg-red-600 hover:bg-red-500 text-white font-bold p-2 rounded-lg shadow-md" disabled><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="6" width="12" height="12"></rect></svg></button>
+                                <button id="reverse-btn" title="Reverse Direction" class="control-button bg-gray-600 hover:bg-gray-500 text-white font-bold p-2 rounded-lg shadow-md"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"></polyline><polyline points="9 18 3 12 9 6"></polyline></svg></button>
+                            </div>
+                             <div class="px-4">
+                                <label for="speed-slider" class="text-sm font-medium text-gray-400">Speed: <span id="speed-value">50</span> km/h</label>
+                                <input type="range" id="speed-slider" min="10" max="120" value="50" class="w-full">
+                            </div>
+                            <div id="status-display" class="bg-gray-900 border border-gray-700 rounded-md p-2 text-center font-mono text-sm"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+    // --- TIME AND DATE ---
+    const timeEl = document.getElementById('current-time');
+    const dateEl = document.getElementById('current-date');
+
+    function updateHeaderTime() {
+        const now = new Date();
+        timeEl.textContent = now.toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false });
+        dateEl.textContent = now.toLocaleDateString('en-GB', { timeZone: 'Asia/Kolkata', weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+    }
+    setInterval(updateHeaderTime, 1000);
+    updateHeaderTime();
+
+    // --- DOM ELEMENT SELECTORS ---
+    const trainSelectElements = {
+        tableBody: document.getElementById('train-table-body'),
+        searchInput: document.getElementById('train-search'),
+        label: document.getElementById('selected-train-label'),
+    };
+    const controlButtons = {
+        start: document.getElementById('start-btn'),
+        stop: document.getElementById('stop-btn'),
+        reset: document.getElementById('reset-btn'),
+        reverse: document.getElementById('reverse-btn'),
+        emergencyStop: document.getElementById('emergency-stop-btn'),
+        automationToggle: document.getElementById('automation-toggle'),
+    };
+    const displays = {
+        speedSlider: document.getElementById('speed-slider'),
+        speedValue: document.getElementById('speed-value'),
+        status: document.getElementById('status-display'),
+        simClock: document.getElementById('sim-clock'),
+        alertsLog: document.getElementById('alerts-log'),
+    };
+
+    const simElements = {
+        container: document.getElementById('simulation-container'),
+        rainContainer: document.getElementById('rain-container'),
+        body: document.body,
+    };
+    
+    // --- GLOBAL STATE & CONFIG ---
+    let emergencyStopActive = false;
+    let selectedTrainId = 'train1';
+    let simTime = new Date(new Date().setHours(5, 50, 0)); 
+    let alertsData = [];
+    let isAutomationEnabled = true;
+    const DWELL_TIME = 3000;
+    let sunrise = 6; 
+    let sunset = 19; 
+    
+    // --- DATA STRUCTURES ---
+    const points = { 
+        'point-s39': { element: document.getElementById('point-s39'), state: 'straight', position: 45, track: 'track-up-ll', divergeElement: document.getElementById('diverge-s39'), lockedBy: null }, 
+        'point-s34': { element: document.getElementById('point-s34'), state: 'straight', position: 65, track: 'track-up-th', divergeElement: document.getElementById('diverge-s34'), lockedBy: null },
+        'point-s25': { element: document.getElementById('point-s25'), state: 'straight', position: 35, track: 'track-dn-th', divergeElement: document.getElementById('diverge-s25'), lockedBy: null } 
+    };
+    const platforms = { 
+        'BY-PF2': { track: 'track-up-ll', range: [10, 25] }, 
+        'BY-PF3': { track: 'track-dn-th', range: [10, 25] }, 
+        'BY-PF4': { track: 'track-up-th', range: [10, 25] },
+        'CKL-PF1': { track: 'track-dn-ll', range: [65, 75] }, 
+        'CKL-PF2': { track: 'track-up-ll', range: [75, 90] }
+    };
+    const trackLayout = { 'track-dn-ll': { y: 30 }, 'track-up-ll': { y: 40 }, 'track-dn-th': { y: 50 }, 'track-up-th': { y: 60 } };
+    
+    const trainElements = { train1: document.getElementById('train1'), train2: document.getElementById('train2'), train3: document.getElementById('train3') };
+    const initialTrainStates = {
+        train1: { id: 'TRN1', name: 'CSMT-Thane Local', position: 5, direction: 1, currentTrack: 'track-up-ll', speed: 50, isRunning: true, atPoint: null, status: 'Running', lastPlatformArrival: null, speedModifier: 1 },
+        train2: { id: 'TRN2', name: 'Dadar-Kalyan Mail', position: 20, direction: 1, currentTrack: 'track-dn-ll', speed: 40, isRunning: true, atPoint: null, status: 'Running', lastPlatformArrival: null, speedModifier: 1 },
+        train3: { id: 'TRN3', name: 'LTT-CSMT Express', position: 95, direction: -1, currentTrack: 'track-dn-th', speed: 60, isRunning: true, atPoint: null, status: 'Running', lastPlatformArrival: null, speedModifier: 1 },
+    };
+    let trains = JSON.parse(JSON.stringify(initialTrainStates));
+
+    const routes = {
+        'track-up-ll': { 1: { pointId: 'point-s39', requiredState: 'diverted', nextTrack: 'track-dn-ll' } },
+        'track-up-th': { 1: { pointId: 'point-s34', requiredState: 'diverted', nextTrack: 'track-up-ll' } },
+        'track-dn-th': { 1: { pointId: 'point-s25', requiredState: 'diverted', nextTrack: 'track-up-th' } }
+    };
+
+    function initialize() {
+        Object.keys(trains).forEach(id => { trains[id].dwellTimer = null; updateTrainPosition(id); });
+        
+        // Add Event Listeners
+        Object.keys(points).forEach(id => points[id].element.addEventListener('click', () => togglePoint(id)));
+        
+        trainSelectElements.tableBody.addEventListener('click', (e) => {
+            const row = e.target.closest('tr');
+            if (row && row.dataset.trainid) {
+                selectedTrainId = row.dataset.trainid;
+                updateControlsForSelectedTrain();
+            }
+        });
+        
+        controlButtons.start.addEventListener('click', startSelectedTrain);
+        controlButtons.stop.addEventListener('click', () => stopTrain(selectedTrainId, 'Manually stopped'));
+        controlButtons.reset.addEventListener('click', resetSimulation);
+        controlButtons.reverse.addEventListener('click', reverseDirectionForSelected);
+        displays.speedSlider.addEventListener('input', (e) => { const s = parseInt(e.target.value); trains[selectedTrainId].speed = s; displays.speedValue.textContent = s; });
+        
+        controlButtons.emergencyStop.addEventListener('click', toggleEmergencyStop);
+        controlButtons.automationToggle.checked = true;
+        controlButtons.automationToggle.addEventListener('change', (e) => {
+            isAutomationEnabled = e.target.checked;
+            logEvent(`Automation mode ${isAutomationEnabled ? 'ENABLED' : 'DISABLED'}.`, 'info');
+        });
+
+        logEvent('Simulator Initialized. System Ready.', 'info');
+        updateAllUI();
+        masterGameLoop();
+        setInterval(updateClock, 50);
+    }
+    
+    function masterGameLoop() {
+        if (!emergencyStopActive) {
+            Object.keys(trains).forEach(trainId => {
+                const train = trains[trainId];
+                if (train.isRunning) {
+                    const increment = (train.speed * train.speedModifier / 200) * train.direction;
+                    train.position += increment;
+                    if (train.position > 96 || train.position < 4) {
+                        train.direction *= -1;
+                        logEvent(`${train.id} reversed at end of line`, 'info');
+                    }
+                    checkPlatforms(trainId);
+                    checkPoints(trainId);
+                    checkCollisions(trainId);
+                }
+                 if (isAutomationEnabled) {
+                    handleAutomation(trainId);
+                }
+                checkRouteUnlocking(trainId);
+                checkPlatformClearance(trainId);
+                checkIfAtPoint(trainId);
+                updateTrainPosition(trainId);
+            });
+        }
+        requestAnimationFrame(masterGameLoop);
+    }
+    
+    function updateTrainPosition(trainId) {
+        const train = trains[trainId], el = trainElements[trainId], track = trackLayout[train.currentTrack];
+        if (track && el) {
+            el.style.left = `calc(${train.position}% - 25px)`;
+            el.style.top = `calc(${track.y}% - 8px)`;
+            el.querySelector('.headlight').style.left = train.direction === 1 ? '42px' : '2px';
+        }
+    }
+    
+    function checkCollisions(trainId) { const cur = trains[trainId]; if (!cur.isRunning) return; for (const otherId in trains) { if (trainId === otherId) continue; const other = trains[otherId]; if (cur.currentTrack === other.currentTrack) { const dist = other.position - cur.position, isAhead = cur.direction === 1 ? dist > 0 : dist < 0; if (isAhead && Math.abs(dist) < 5) stopTrain(trainId, `Proximity alert for ${other.id}`); } } }
+    function checkPlatforms(trainId) { const train = trains[trainId]; for (const pfId in platforms) { const pf = platforms[pfId]; const stopPos = train.direction === 1 ? pf.range[0] + 2 : pf.range[1] - 2; if (train.currentTrack === pf.track && Math.abs(train.position - stopPos) < 1 && !train.status.startsWith('Dwelling') && train.lastPlatformArrival !== pfId) { stopTrain(trainId, `Arrived at ${pfId}`); train.status = `Dwelling at ${pfId}`; train.lastPlatformArrival = pfId; if (trainId === selectedTrainId) updateControlsForSelectedTrain(); train.dwellTimer = setTimeout(() => { train.status = 'Ready'; train.dwellTimer = null; logEvent(`${train.id} dwelling complete at ${pfId}`, 'info'); if (trainId === selectedTrainId) updateControlsForSelectedTrain(); }, DWELL_TIME); return; } } }
+    function checkPlatformClearance(trainId) { const train = trains[trainId]; if (train.lastPlatformArrival) { const pf = platforms[train.lastPlatformArrival]; if (train.position < pf.range[0] || train.position > pf.range[1]) { train.lastPlatformArrival = null; } } }
+    function checkIfAtPoint(trainId) { const train = trains[trainId]; train.atPoint = null; for(const pId in points) { const p = points[pId]; if(train.currentTrack === p.track && Math.abs(train.position - p.position) < 1) { train.atPoint = pId; return; } } }
+    
+    function checkPoints(trainId) { 
+        const train = trains[trainId]; 
+        const offset = train.direction * 1.5; 
+        
+        const checkPoint = (track, pId, nextTrack) => { 
+            const p=points[pId]; 
+            if (train.currentTrack===track && Math.abs(train.position-(p.position-offset))<0.5) { 
+                p.lockedBy = trainId; 
+                p.element.classList.add('locked'); 
+                logEvent(`Point ${pId.split('-').pop().toUpperCase()} locked by ${train.id}`, 'info'); 
+                if (p.state==='diverted') { 
+                    train.currentTrack=nextTrack; 
+                    train.speedModifier = 0.4; 
+                    logEvent(`${train.id} diverted via ${pId.toUpperCase()}`, 'info'); 
+                } 
+            } 
+        }; 
+        
+        checkPoint('track-up-ll','point-s39','track-dn-ll'); 
+        checkPoint('track-up-th','point-s34','track-up-ll'); 
+        checkPoint('track-dn-th', 'point-s25', 'track-up-th'); 
+    }
+    
+    function checkRouteUnlocking(trainId) { const train = trains[trainId]; for (const pId in points) { const p = points[pId]; if (p.lockedBy === trainId) { const distancePastPoint = (train.position - p.position) * train.direction; if (distancePastPoint > 5) { p.lockedBy = null; p.element.classList.remove('locked'); train.speedModifier = 1; logEvent(`Point ${pId.split('-').pop().toUpperCase()} unlocked by ${train.id}`, 'info'); } } } }
+
+    function handleAutomation(trainId) {
+        const train = trains[trainId];
+        if (train.dwellTimer) return;
+        
+        if (train.status === 'Ready' && !train.isRunning) {
+            startTrain(trainId);
+        } else if (train.isRunning) {
+            automatePointsForTrain(trainId);
+        }
+    }
+
+    function automatePointsForTrain(trainId) {
+        const train = trains[trainId];
+        const routeInfo = routes[train.currentTrack]?.[train.direction];
+        if (!routeInfo) return;
+
+        const { pointId, requiredState, nextTrack } = routeInfo;
+        const point = points[pointId];
+
+        // Check if train is approaching the point
+        const distanceToPoint = (point.position - train.position) * train.direction;
+        if (distanceToPoint > 0 && distanceToPoint < 5) {
+            if (point.lockedBy && point.lockedBy !== trainId) return; // Point locked by another
+            
+            // Check if destination track is clear
+            let isNextTrackClear = true;
+            for(const otherTrainId in trains) {
+                if (trainId === otherTrainId) continue;
+                if(trains[otherTrainId].currentTrack === nextTrack) {
+                    isNextTrackClear = false;
+                    break;
+                }
+            }
+
+            if (isNextTrackClear && point.state !== requiredState) {
+                logEvent(`Auto-setting point ${pointId.replace('point-','').toUpperCase()} to ${requiredState} for ${train.id}`, 'info');
+                setPoint(pointId, requiredState);
+            }
+        }
+    }
+    
+    function stopTrain(trainId, reason = "") {
+        const train = trains[trainId];
+        if (!train.isRunning) return;
+        train.isRunning = false;
+        
+        if (reason.toLowerCase().startsWith('arrived at')) {
+            // Status set in checkPlatforms
+        } else {
+            train.status = 'Stopped';
+        }
+        
+        logEvent(`${train.id} stopped: ${reason}`, 'warn');
+        if (selectedTrainId === trainId) updateControlsForSelectedTrain();
+    }
+
+    function startTrain(trainId) { const train = trains[trainId]; if(train.isRunning) return; train.status = 'Running'; train.isRunning = true; logEvent(`${train.id} has started`, 'ok'); updateControlsForSelectedTrain(); }
+    function startSelectedTrain() { startTrain(selectedTrainId); }
+    function reverseDirectionForSelected() { const train=trains[selectedTrainId]; if(train.isRunning) { logEvent("Cannot reverse a running train", "warn"); return; } train.direction *= -1; updateControlsForSelectedTrain(); }
+    
+    function setPoint(id, state) {
+        const p = points[id];
+        if (p.lockedBy) return;
+        p.state = state;
+        p.element.className = `point ${p.state}`;
+        p.divergeElement.classList.toggle('connected', state === 'diverted');
+    }
+
+    function togglePoint(id) { 
+        if (isAutomationEnabled) { logEvent('Manual point control disabled in Auto mode.', 'warn'); return; } 
+        const p = points[id]; 
+        if (p.lockedBy) { logEvent(`Point ${id.split('-').pop().toUpperCase()} is locked by ${trains[p.lockedBy].id}`, 'warn'); return; } 
+        const newState = p.state === 'straight' ? 'diverted' : 'straight';
+        setPoint(id, newState);
+        logEvent(`Point ${id.split('-').pop().toUpperCase()} manually set to ${newState}`, 'info');
+    }
+    
+    function updateAllUI() {
+        renderTrains();
+        renderAlerts();
+        updateControlsForSelectedTrain();
+    }
+
+    function renderTrains(filter = '') {
+        trainSelectElements.tableBody.innerHTML = '';
+        Object.values(trains).forEach(train => {
+            let statusColor = 'text-gray-400';
+            if (train.status === 'Running') statusColor = 'text-green-400';
+            if (train.status.startsWith('Dwelling')) statusColor = 'text-yellow-400';
+            if (train.status === 'Ready') statusColor = 'text-blue-400';
+            if (train.status === 'Stopped') statusColor = 'text-red-400';
+
+            const isSelected = selectedTrainId === `train${train.id.slice(-1)}`;
+
+            const row = `
+                <tr data-trainid="train${train.id.slice(-1)}" class="${isSelected ? 'bg-blue-900/50' : ''} hover:bg-gray-700/50 transition-colors cursor-pointer">
+                    <td class="p-3 font-mono">${train.id}</td>
+                    <td class="p-3 font-semibold ${statusColor}">${train.status}</td>
+                    <td class="p-3">${train.isRunning ? train.speed : 0} km/h</td>
+                    <td class="p-3 font-mono">${train.currentTrack.replace('track-','').toUpperCase()}</td>
+                </tr>`;
+            trainSelectElements.tableBody.insertAdjacentHTML('beforeend', row);
+        });
+    }
+
+    function renderAlerts() {
+        displays.alertsLog.innerHTML = alertsData.map(alert => {
+            let alertClass;
+            switch(alert.type) {
+                case 'critical': alertClass = 'alert-critical text-red-300'; break;
+                case 'warn': alertClass = 'alert-warning text-yellow-300'; break;
+                case 'info': alertClass = 'alert-info text-blue-300'; break;
+                case 'ok': alertClass = 'alert-ok text-green-300'; break;
+            }
+            return `<div class="${alertClass} flex items-start"><span class="time mr-2">[${alert.time}]</span> <span class="flex-grow">${alert.message}</span></div>`;
+        }).join('');
+        displays.alertsLog.scrollTop = displays.alertsLog.scrollHeight;
+    }
+    
+    function updateControlsForSelectedTrain() {
+        const train = trains[selectedTrainId];
+        if (!train) return;
+        displays.speedSlider.value = train.speed;
+        displays.speedValue.textContent = train.speed;
+        controlButtons.start.disabled = train.isRunning || train.status.startsWith('Dwelling') || emergencyStopActive || isAutomationEnabled;
+        controlButtons.stop.disabled = !train.isRunning || emergencyStopActive || isAutomationEnabled;
+        controlButtons.reverse.disabled = isAutomationEnabled;
+        trainSelectElements.label.textContent = train.id;
+        updateStatusDisplay();
+        renderTrains();
+    }
+    
+    function updateStatusDisplay() {
+        const train = trains[selectedTrainId];
+        if(!train) return;
+        let statusText = train.isRunning ? `<span class="text-green-400">${train.status}</span>` : `<span class="text-red-400">${train.status}</span>`;
+        if(train.status.startsWith('Dwelling')) statusText = `<span class="text-yellow-400">${train.status}</span>`;
+        if(train.status === 'Ready') statusText = `<span class="text-blue-400">${train.status}</span>`;
+        
+        const dirText = train.direction === 1 ? 'East &rarr;' : 'West &larr;';
+        displays.status.innerHTML = `<span>${train.id}: ${statusText}</span><span class="text-gray-600">|</span><span>${train.currentTrack.replace('track-','').toUpperCase()}</span><span class="text-gray-600">|</span><span>${dirText}</span>`;
+    }
+
+    function toggleEmergencyStop() { emergencyStopActive = !emergencyStopActive; if (emergencyStopActive) { controlButtons.emergencyStop.textContent = "RESUME"; controlButtons.emergencyStop.classList.remove('emergency-stop-btn', 'bg-red-800', 'hover:bg-red-700'); controlButtons.emergencyStop.classList.add('bg-green-600', 'hover:bg-green-500'); Object.keys(trains).forEach(id => { if (trains[id].isRunning) stopTrain(id, 'Emergency Stopped'); }); logEvent('--- EMERGENCY STOP ACTIVATED ---', 'critical'); } else { controlButtons.emergencyStop.textContent = "HALT"; controlButtons.emergencyStop.classList.add('emergency-stop-btn', 'bg-red-800', 'hover:bg-red-700'); controlButtons.emergencyStop.classList.remove('bg-green-600', 'hover:bg-green-500'); logEvent('--- Operations Resumed ---', 'ok'); } updateControlsForSelectedTrain(); }
+    function updateClock() { simTime.setMinutes(simTime.getMinutes() + 1); displays.simClock.textContent = simTime.toTimeString().split(' ')[0]; const currentHour = simTime.getHours(); if (currentHour >= sunrise && currentHour < sunset) { simElements.body.classList.remove('is-night'); } else { simElements.body.classList.add('is-night'); } }
+    function logEvent(msg, type = 'info') { const time = new Date().toTimeString().split(' ')[0]; alertsData.unshift({ time: time, message: msg, type: type }); if (alertsData.length > 50) alertsData.pop(); renderAlerts(); renderTrains(); }
+    
+    function resetSimulation() {
+        Object.values(trains).forEach(train => { clearTimeout(train.dwellTimer); });
+        trains = JSON.parse(JSON.stringify(initialTrainStates)); 
+        Object.keys(trains).forEach(id => { trains[id].dwellTimer = null; updateTrainPosition(id); }); 
+        Object.keys(points).forEach(id => { let p = points[id]; p.state = 'straight'; p.element.className = `point straight`; p.divergeElement.classList.remove('connected'); p.lockedBy = null; }); 
+        if(emergencyStopActive) toggleEmergencyStop(); 
+        simTime = new Date(new Date().setHours(5, 50, 0));
+        alertsData = [];
+        controlButtons.automationToggle.checked = true;
+        isAutomationEnabled = true;
+        logEvent('Simulator Initialized. System Ready.', 'info'); 
+        updateAllUI();
+    }
+    
+    initialize();
+});
+</script>
+</body>
+</html>
+

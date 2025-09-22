@@ -1,0 +1,692 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>त्रिNetraAI Intelligent Train Traffic Control System</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Roboto+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Roboto Mono', monospace;
+            background-color: #2d3748;
+            color: #e2e8f0;
+            overflow: hidden;
+        }
+        #simulation-container {
+            background-color: #87ceeb; /* Day sky */
+            background-image: 
+                linear-gradient(rgba(100, 116, 139, 0.1) 1px, transparent 1px), 
+                linear-gradient(90deg, rgba(100, 116, 139, 0.1) 1px, transparent 1px);
+            background-size: 20px 20px;
+            border: 1px solid #4a5568;
+            box-shadow: inset 0 0 15px rgba(0,0,0,0.5);
+            transition: background-color 2s linear;
+        }
+        body.is-night #simulation-container {
+            background-color: #0c1445; /* Night sky */
+        }
+        .track {
+            position: absolute;
+            height: 10px;
+            background-color: #4a5568; /* Ballast color */
+            /* Style for rails and ties */
+            background-image: 
+                linear-gradient(#a0aec0, #a0aec0), /* Top rail */
+                linear-gradient(#a0aec0, #a0aec0), /* Bottom rail */
+                repeating-linear-gradient(90deg, #657186 0, #657186 4px, transparent 4px, transparent 12px); /* Ties */
+            background-size: 100% 2px, 100% 2px, auto 100%;
+            background-repeat: no-repeat, no-repeat, repeat;
+            background-position: 0 0, 0 100%, 0 0;
+        }
+        .diverging-track {
+            transition: opacity 0.3s ease;
+            opacity: 0.7;
+        }
+        .diverging-track.connected {
+            opacity: 1;
+        }
+        .platform {
+            position: absolute;
+            background-color: #718096;
+            border: 1px solid #a0aec0;
+            box-shadow: inset 0 2px 4px rgba(0,0,0,0.4);
+            height: 24px;
+        }
+        .platform::after {
+            content: '';
+            position: absolute;
+            bottom: 2px;
+            left: 0;
+            width: 100%;
+            height: 3px;
+            background-color: #f6e05e;
+            border-top: 1px dashed #4a5568;
+        }
+        .platform-text {
+            position: absolute;
+            background: rgba(26, 32, 44, 0.8);
+            color: #f6e05e;
+            font-weight: bold;
+            font-size: 14px;
+            white-space: nowrap;
+            padding: 2px 6px;
+            border-radius: 4px;
+            border: 1px solid #4a5568;
+        }
+        .signal {
+            position: absolute;
+            width: 14px;
+            height: 14px;
+            border-radius: 50%;
+            border: 2px solid #a0aec0;
+            cursor: pointer;
+            transition: background-color 0.3s, box-shadow 0.3s;
+        }
+        .signal.green { background-color: #48bb78; box-shadow: 0 0 12px #68d391, inset 0 0 4px white; }
+        .signal.red { background-color: #f56565; box-shadow: 0 0 12px #fc8181, inset 0 0 4px white; }
+        body.is-night .signal.green { box-shadow: 0 0 18px 4px #68d391, inset 0 0 4px white; }
+        body.is-night .signal.red { box-shadow: 0 0 18px 4px #fc8181, inset 0 0 4px white; }
+        .signal.failed {
+            animation: flashRed 1s infinite;
+            cursor: not-allowed;
+        }
+        @keyframes flashRed { 50% { background-color: #a0aec0; box-shadow: none; } }
+
+        .signal-label {
+            position: absolute;
+            font-size: 11px;
+            color: #a0aec0;
+            white-space: nowrap;
+            transform: translateX(-50%);
+            text-shadow: 1px 1px 2px #1a202c;
+        }
+        body.is-night .signal-label { color: #cbd5e0; }
+
+        .point {
+            position: absolute;
+            width: 0;
+            height: 0;
+            border-style: solid;
+            cursor: pointer;
+            transition: border-color 0.3s, transform 0.3s, opacity 0.3s;
+        }
+        .point.straight { border-width: 7px 0 7px 14px; border-color: transparent transparent transparent #48bb78; }
+        .point.diverted { border-width: 7px 14px 7px 0; border-color: transparent #f56565 transparent transparent; }
+        .point.locked {
+            cursor: not-allowed;
+            opacity: 0.6;
+        }
+        .point-label { position: absolute; font-size: 11px; color: #a0aec0; white-space: nowrap; }
+        .train {
+            position: absolute;
+            width: 50px;
+            height: 16px;
+            border: 1px solid #a0aec0;
+            border-radius: 4px;
+            color: white;
+            font-size: 11px;
+            text-align: center;
+            line-height: 14px;
+            z-index: 10;
+            transition: left 0.1s linear, top 0.1s linear;
+            box-shadow: 0 4px 8px rgba(0,0,0,0.6);
+        }
+        .train .headlight {
+            position: absolute;
+            top: 50%;
+            transform: translateY(-50%);
+            width: 6px;
+            height: 6px;
+            background-color: #fefcbf;
+            border-radius: 50%;
+            box-shadow: 0 0 8px 2px #fefcbf;
+            transition: box-shadow 2s linear;
+        }
+        body.is-night .train .headlight { box-shadow: 0 0 12px 4px #fefcbf; }
+        .train.train1 { background: linear-gradient(to bottom, #63b3ed, #3182ce); }
+        .train.train2 { background: linear-gradient(to bottom, #68d391, #38a169); }
+        .train.train3 { background: linear-gradient(to bottom, #f687b3, #d53f8c); }
+
+        .station-label, .sim-clock {
+             position: absolute;
+             font-size: 1.75rem;
+             font-weight: bold;
+             color: #90cdf4;
+             text-shadow: 0 0 5px #63b3ed, 1px 1px 3px #1a202c;
+        }
+        .sim-clock { font-size: 1.25rem; }
+        body.is-night .station-label, body.is-night .sim-clock { color: #e2e8f0; }
+
+        .info-box {
+            position: absolute;
+            background-color: rgba(26, 32, 44, 0.85);
+            border: 1px solid #718096;
+            padding: 8px;
+            border-radius: 8px;
+            font-size: 11px;
+            color: #e2e8f0;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.4);
+            height: 120px;
+            width: 280px;
+            overflow-y: auto;
+        }
+        .info-box p { margin-bottom: 4px; }
+        .info-box .time { color: #63b3ed; }
+        
+        .control-panel {
+            background: linear-gradient(to top, #1a202c, #2d3748);
+            border-top: 1px solid #718096;
+            box-shadow: 0 -5px 15px rgba(0,0,0,0.3);
+        }
+        .control-button { transition: background-color 0.2s, transform 0.2s; }
+        .control-button:hover { transform: translateY(-2px); }
+        .control-button:active { transform: translateY(0); }
+        .status-display {
+            background-color: #1a202c;
+            border: 1px solid #4a5568;
+            border-radius: 6px;
+            padding: 4px 8px;
+            font-size: 12px;
+            min-width: 320px;
+        }
+        #rain-container {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            pointer-events: none; overflow: hidden; z-index: 50;
+        }
+        .raindrop {
+            position: absolute; bottom: 100%; width: 1px; height: 50px;
+            background: linear-gradient(to top, rgba(255,255,255,0) 0%, rgba(255,255,255,0.4) 100%);
+            animation: fall linear infinite;
+        }
+        @keyframes fall {
+            to { transform: translateY(100vh); }
+        }
+        .scenario-controls {
+            border-left: 2px solid #4a5568;
+            padding-left: 1rem;
+        }
+        .emergency-stop-btn {
+            animation: pulse-red 2s infinite;
+        }
+        @keyframes pulse-red {
+            0% { box-shadow: 0 0 0 0 rgba(252, 129, 129, 0.7); }
+            70% { box-shadow: 0 0 0 10px rgba(252, 129, 129, 0); }
+            100% { box-shadow: 0 0 0 0 rgba(252, 129, 129, 0); }
+        }
+        #weather-display {
+            position: absolute;
+            top: 2%;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(26, 32, 44, 0.8);
+            padding: 4px 12px;
+            border-radius: 8px;
+            border: 1px solid #718096;
+            font-size: 1rem;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .theme-controls .control-button.active {
+            background-color: #4299e1;
+            color: #fff;
+        }
+    </style>
+</head>
+<body class="flex flex-col h-screen">
+
+    <header class="bg-gray-900 text-center py-3 shadow-lg z-20">
+        <h1 class="text-2xl font-bold text-blue-300 tracking-wider">Byculla - Chinchpokli Railway Simulator</h1>
+    </header>
+
+    <!-- Simulation Area -->
+    <div id="simulation-container" class="relative flex-grow w-full overflow-hidden">
+        <div id="rain-container"></div>
+        <!-- Labels -->
+        <div class="station-label" style="left: 5%; top: 5%;">BYCULLA</div>
+        <div class="station-label" style="right: 5%; top: 5%;">CHINCHPOKLI</div>
+        <div id="sim-clock" class="sim-clock" style="right: 5%; top: 12%;">08:00:00</div>
+        <div id="weather-display">Loading weather...</div>
+
+        <!-- Platforms & Tracks -->
+        <div class="platform" style="left: 10%; top: calc(20% - 12px); width: 15%;"></div><div class="platform-text" style="left: 14%; top: calc(20% - 35px);">PF NO 1</div>
+        <div class="platform" style="left: 10%; top: calc(40% - 12px); width: 15%;"></div><div class="platform-text" style="left: 14%; top: calc(40% - 35px);">PF NO 2</div>
+        <div class="platform" style="left: 10%; top: calc(50% - 12px); width: 15%;"></div><div class="platform-text" style="left: 14%; top: calc(50% - 35px);">PF NO 3</div>
+        <div class="platform" style="left: 10%; top: calc(60% - 12px); width: 15%;"></div><div class="platform-text" style="left: 14%; top: calc(60% - 35px);">PF NO 4</div>
+        <div class="platform" style="left: 65%; top: calc(30% - 12px); width: 10%;"></div><div class="platform-text" style="left: 67%; top: calc(30% - 35px);">PF No. 1</div>
+        <div class="platform" style="right: 15%; top: calc(40% - 12px); width: 15%;"></div><div class="platform-text" style="right: 19%; top: calc(40% - 35px);">PF NO 2</div>
+        <div class="track" id="track-dn-ll" style="left: 5%; top: calc(30% - 2px); width: 90%;"></div><div class="track" id="track-up-ll" style="left: 5%; top: calc(40% - 2px); width: 90%;"></div><div class="track" id="track-dn-th" style="left: 5%; top: calc(50% - 2px); width: 90%;"></div><div class="track" id="track-up-th" style="left: 5%; top: calc(60% - 2px); width: 90%;"></div>
+        <div id="diverge-s39" class="track diverging-track" style="transform-origin: left; transform: rotate(-5.7deg); left: 45%; top: calc(37% - 2px); width: 15%;"></div><div id="diverge-s34" class="track diverging-track" style="transform-origin: right; transform: rotate(-5.7deg); left: 50%; top: calc(57% - 2px); width: 15%;"></div>
+        <div id="diverge-s25" class="track diverging-track" style="transform-origin: left; transform: rotate(5.7deg); left: 35%; top: calc(53% - 2px); width: 15%;"></div>
+        <div id="sig-l014" class="signal red" style="left: 15%; top: calc(30% - 20px);"></div><div class="signal-label" style="left: 15%; top: calc(30% - 38px);">L-014</div><div id="sig-l021" class="signal red" style="left: 55%; top: calc(30% - 20px);"></div><div class="signal-label" style="left: 55%; top: calc(30% - 38px);">L-021</div><div id="sig-by-s-16" class="signal red" style="left: 20%; top: calc(40% + 8px);"></div><div class="signal-label" style="left: 20%; top: calc(40% + 25px);">S-16</div><div id="sig-by-s-39" class="signal red" style="left: 45%; top: calc(40% + 8px);"></div><div class="signal-label" style="left: 45%; top: calc(40% + 25px);">S-39</div><div id="sig-by-s-1" class="signal red" style="left: 10%; top: calc(50% + 8px);"></div><div class="signal-label" style="left: 10%; top: calc(50% + 25px);">S-1</div><div id="sig-by-s-34" class="signal red" style="left: 65%; top: calc(60% + 8px);"></div><div class="signal-label" style="left: 65%; top: calc(60% + 25px);">S-34</div><div id="sig-iby-s-46" class="signal red" style="left: 75%; top: calc(60% + 8px);"></div><div class="signal-label" style="left: 75%; top: calc(60% + 25px);">S-46</div>
+        <div id="sig-by-pf2-dep" class="signal red" style="left: 25%; top: calc(40% + 8px);"></div><div class="signal-label" style="left: 25%; top: calc(40% + 25px);">PF2-DEP</div><div id="sig-by-pf3-dep" class="signal red" style="left: 25%; top: calc(50% + 8px);"></div><div class="signal-label" style="left: 25%; top: calc(50% + 25px);">PF3-DEP</div><div id="sig-ckl-pf1-dep" class="signal red" style="left: 65%; top: calc(30% - 20px);"></div><div class="signal-label" style="left: 65%; top: calc(30% - 38px);">PF1-DEP</div><div id="sig-ckl-pf2-dep" class="signal red" style="right: 25%; top: calc(40% - 20px);"></div><div class="signal-label" style="right: 25%; top: calc(40% - 38px);">PF2-DEP</div>
+        <div id="point-s39" class="point straight" style="left: 44.5%; top: calc(40% - 7px);"></div><div class="point-label" style="left: 43%; top: calc(40% + 10px);">S-39</div><div id="point-s34" class="point straight" style="left: 65.5%; top: calc(60% - 7px);"></div><div class="point-label" style="left: 66.5%; top: calc(60% + 10px);">S-34</div>
+        <div id="sig-by-s-25" class="signal red" style="left: 35%; top: calc(50% + 8px);"></div><div class="signal-label" style="left: 35%; top: calc(50% + 25px);">S-25</div>
+        <div id="point-s25" class="point straight" style="left: 34.5%; top: calc(50% - 7px);"></div><div class="point-label" style="left: 33%; top: calc(50% + 10px);">S-25</div>
+
+        <!-- Info Displays -->
+        <div id="event-log" class="info-box" style="left: 2%; bottom: 2%;"></div>
+        <div id="pax-info" class="info-box" style="right: 2%; bottom: 2%;"></div>
+        
+        <!-- Trains -->
+        <div id="train1" class="train train1">TRN1<div class="headlight"></div></div>
+        <div id="train2" class="train train2">TRN2<div class="headlight"></div></div>
+        <div id="train3" class="train train3">TRN3<div class="headlight"></div></div>
+    </div>
+
+    <!-- Control Panel -->
+    <div class="control-panel p-4 flex justify-center items-center space-x-4 z-20">
+        <!-- Main Controls -->
+        <div class="flex flex-col items-center"><label for="train-select" class="mb-1 text-sm font-medium text-gray-400">Control:</label><select id="train-select" class="bg-gray-700 border border-gray-600 rounded-md px-2 py-1 text-white"></select></div>
+        <div id="status-display" class="status-display flex items-center justify-center space-x-3"></div>
+        <button id="start-btn" title="Start Train" class="control-button bg-green-600 hover:bg-green-500 text-white font-bold p-2 rounded-lg shadow-md"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg></button>
+        <button id="stop-btn" title="Stop Train" class="control-button bg-red-600 hover:bg-red-500 text-white font-bold p-2 rounded-lg shadow-md" disabled><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="6" width="12" height="12"></rect></svg></button>
+        <button id="reverse-btn" title="Reverse Direction" class="control-button bg-gray-600 hover:bg-gray-500 text-white font-bold p-2 rounded-lg shadow-md"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"></polyline><polyline points="9 18 3 12 9 6"></polyline></svg></button>
+        <div class="flex flex-col items-center"><label for="speed-slider" class="mb-1 text-sm font-medium text-gray-400">Speed: <span id="speed-value">50</span></label><input type="range" id="speed-slider" min="10" max="200" value="50" class="w-32"></div>
+        <button id="reset-btn" title="Reset Simulation" class="control-button bg-blue-600 hover:bg-blue-500 text-white font-bold p-2 rounded-lg shadow-md"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 2v6h6M21.5 22v-6h-6"/><path d="M22 11.5A10 10 0 0 0 3.2 7.2M2 12.5a10 10 0 0 0 18.8 4.2"/></svg></button>
+        
+        <div class="theme-controls flex items-center space-x-1 bg-gray-900 rounded-lg p-1 ml-4">
+            <button id="theme-day-btn" title="Force Day Mode" class="control-button px-2 py-1 text-sm rounded-md">Day</button>
+            <button id="theme-auto-btn" title="Automatic Day/Night" class="control-button px-2 py-1 text-sm rounded-md active">Auto</button>
+            <button id="theme-night-btn" title="Force Night Mode" class="control-button px-2 py-1 text-sm rounded-md">Night</button>
+        </div>
+
+        <!-- Scenario Controls -->
+        <div class="scenario-controls flex items-center space-x-4">
+            <button onclick="location.href='auto.html'" 
+    class="control-button bg-purple-600 hover:bg-purple-500 text-white font-bold p-2 rounded-lg shadow-md">
+    Auto Mode
+</button>
+
+            <button id="emergency-stop-btn" title="Emergency Stop All Trains" class="control-button bg-red-800 hover:bg-red-700 text-white font-bold p-2 rounded-full h-12 w-12 flex items-center justify-center shadow-lg">HALT</button>
+            <div class="flex flex-col space-y-2">
+                <div class="flex items-center space-x-2">
+                    <select id="signal-fail-select" class="bg-gray-700 border border-gray-600 rounded-md px-2 py-1 text-white text-sm"></select>
+                    <button id="fail-signal-btn" class="control-button bg-yellow-600 hover:bg-yellow-500 text-white font-bold px-2 py-1 text-sm rounded-md">Fail</button>
+                    <button id="fix-signal-btn" class="control-button bg-green-600 hover:bg-green-500 text-white font-bold px-2 py-1 text-sm rounded-md">Fix</button>
+                </div>
+                 <div class="flex items-center space-x-2">
+                    <label for="priority-select" class="text-sm">Priority:</label>
+                    <select id="priority-select" class="bg-gray-700 border border-gray-600 rounded-md px-2 py-1 text-white text-sm">
+                        <option value="normal">Normal</option>
+                        <option value="high">High</option>
+                    </select>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+    // --- Element Selectors ---
+    const trainSelect = document.getElementById('train-select');
+    const startBtn = document.getElementById('start-btn'), stopBtn = document.getElementById('stop-btn'), resetBtn = document.getElementById('reset-btn'), reverseBtn = document.getElementById('reverse-btn');
+    const speedSlider = document.getElementById('speed-slider'), speedValue = document.getElementById('speed-value');
+    const statusDisplay = document.getElementById('status-display'), simClock = document.getElementById('sim-clock'), eventLog = document.getElementById('event-log'), paxInfo = document.getElementById('pax-info');
+    const rainContainer = document.getElementById('rain-container');
+    const body = document.body;
+    const emergencyStopBtn = document.getElementById('emergency-stop-btn');
+    const signalFailSelect = document.getElementById('signal-fail-select');
+    const failSignalBtn = document.getElementById('fail-signal-btn');
+    const fixSignalBtn = document.getElementById('fix-signal-btn');
+    const prioritySelect = document.getElementById('priority-select');
+    const weatherDisplay = document.getElementById('weather-display');
+    const themeDayBtn = document.getElementById('theme-day-btn');
+    const themeAutoBtn = document.getElementById('theme-auto-btn');
+    const themeNightBtn = document.getElementById('theme-night-btn');
+
+
+    // --- API & Global State ---
+    const WEATHER_API_KEY = '';
+    let emergencyStopActive = false;
+    let selectedTrainId = 'train1';
+    let simTime = new Date(); // Start with real time
+    let sunrise, sunset;
+    let timeMode = 'auto'; // 'auto', 'day', 'night'
+    const DWELL_TIME = 7000;
+
+    // --- Audio Engine ---
+    const synth = window.speechSynthesis;
+    let audioContext;
+    try {
+        audioContext = new (window.AudioContext || window.webkitAudioContext)();
+    } catch(e) { console.error("Web Audio API is not supported in this browser."); }
+
+    function playSound(type, ...args) {
+        if (!audioContext) return;
+        const oscillator = audioContext.createOscillator();
+        const gainNode = audioContext.createGain();
+        oscillator.connect(gainNode);
+        gainNode.connect(audioContext.destination);
+
+        switch(type) {
+            case 'click':
+                oscillator.type = 'triangle';
+                oscillator.frequency.setValueAtTime(800, audioContext.currentTime);
+                gainNode.gain.setValueAtTime(0.5, audioContext.currentTime);
+                gainNode.gain.exponentialRampToValueAtTime(0.001, audioContext.currentTime + 0.1);
+                oscillator.start(audioContext.currentTime);
+                oscillator.stop(audioContext.currentTime + 0.1);
+                break;
+            case 'horn':
+                oscillator.type = 'sawtooth';
+                oscillator.frequency.setValueAtTime(300, audioContext.currentTime);
+                oscillator.frequency.exponentialRampToValueAtTime(350, audioContext.currentTime + 0.5);
+                gainNode.gain.setValueAtTime(0.3, audioContext.currentTime);
+                gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.5);
+                oscillator.start(audioContext.currentTime);
+                oscillator.stop(audioContext.currentTime + 0.5);
+                break;
+        }
+    }
+    
+    // --- Data Structures ---
+    const signals = {};
+    document.querySelectorAll('.signal').forEach(el => {
+        signals[el.id] = { element: el, failed: false };
+    });
+    
+    const points = { 
+        'point-s39': { element: document.getElementById('point-s39'), state: 'straight', position: 45, track: 'track-up-ll', divergeElement: document.getElementById('diverge-s39'), lockedBy: null }, 
+        'point-s34': { element: document.getElementById('point-s34'), state: 'straight', position: 65, track: 'track-up-th', divergeElement: document.getElementById('diverge-s34'), lockedBy: null },
+        'point-s25': { element: document.getElementById('point-s25'), state: 'straight', position: 35, track: 'track-dn-th', divergeElement: document.getElementById('diverge-s25'), lockedBy: null } 
+    };
+    const platforms = { 
+        'BY-PF2': { track: 'track-up-ll', range: [10, 25] }, 
+        'BY-PF3': { track: 'track-dn-th', range: [10, 25] }, 
+        'BY-PF4': { track: 'track-up-th', range: [10, 25] },
+        'CKL-PF1': { track: 'track-dn-ll', range: [65, 75] }, 
+        'CKL-PF2': { track: 'track-up-ll', range: [75, 90] }
+    };
+    const trackLayout = { 'track-dn-ll': { y: 30 }, 'track-up-ll': { y: 40 }, 'track-dn-th': { y: 50 }, 'track-up-th': { y: 60 } };
+    
+    const trainElements = { train1: document.getElementById('train1'), train2: document.getElementById('train2'), train3: document.getElementById('train3') };
+    const initialTrainStates = {
+        train1: { position: 5, direction: 1, currentTrack: 'track-up-ll', speed: 50, isRunning: false, atPoint: null, status: 'Idle', lastPlatformArrival: null, priority: 'normal', speedModifier: 1 },
+        train2: { position: 20, direction: 1, currentTrack: 'track-dn-ll', speed: 40, isRunning: false, atPoint: null, status: 'Idle', lastPlatformArrival: null, priority: 'normal', speedModifier: 1 },
+        train3: { position: 95, direction: -1, currentTrack: 'track-dn-th', speed: 60, isRunning: false, atPoint: null, status: 'Idle', lastPlatformArrival: null, priority: 'normal', speedModifier: 1 },
+    };
+    let trains = JSON.parse(JSON.stringify(initialTrainStates));
+
+    async function initialize() {
+        // Populate dropdowns
+        trainSelect.innerHTML = Object.keys(trains).map(id => `<option value="${id}">${id.toUpperCase()}</option>`).join('');
+        signalFailSelect.innerHTML = Object.keys(signals).map(id => `<option value="${id}">${id.replace('sig-','').toUpperCase()}</option>`).join('');
+
+        Object.keys(trains).forEach(id => { trains[id].dwellTimer = null; updateTrainPosition(id); });
+        
+        // Add Event Listeners
+        Object.keys(signals).forEach(id => signals[id].element.addEventListener('click', () => toggleSignal(id)));
+        Object.keys(points).forEach(id => points[id].element.addEventListener('click', () => togglePoint(id)));
+        
+        trainSelect.addEventListener('change', (e) => { selectedTrainId = e.target.value; updateControlsForSelectedTrain(); });
+        prioritySelect.addEventListener('change', (e) => { trains[selectedTrainId].priority = e.target.value; logEvent(`${selectedTrainId.toUpperCase()} priority set to ${e.target.value}.`, 'warn'); updateControlsForSelectedTrain(); });
+        
+        startBtn.addEventListener('click', startSelectedTrain);
+        stopBtn.addEventListener('click', () => stopTrain(selectedTrainId, 'Manually stopped.'));
+        resetBtn.addEventListener('click', resetSimulation);
+        reverseBtn.addEventListener('click', reverseDirectionForSelected);
+        speedSlider.addEventListener('input', (e) => { const s = parseInt(e.target.value); trains[selectedTrainId].speed = s; speedValue.textContent = s; });
+        
+        emergencyStopBtn.addEventListener('click', toggleEmergencyStop);
+        failSignalBtn.addEventListener('click', failSelectedSignal);
+        fixSignalBtn.addEventListener('click', fixSelectedSignal);
+
+        themeDayBtn.addEventListener('click', () => { timeMode = 'day'; playSound('click'); applyTheme(); });
+        themeAutoBtn.addEventListener('click', () => { timeMode = 'auto'; playSound('click'); applyTheme(); });
+        themeNightBtn.addEventListener('click', () => { timeMode = 'night'; playSound('click'); applyTheme(); });
+
+        // Final setup
+        logEvent('Simulator Initialized. System Ready.');
+        updateControlsForSelectedTrain();
+        updatePaxInfo();
+        masterGameLoop();
+        await fetchWeather();
+        applyTheme();
+        setInterval(fetchWeather, 5 * 60 * 1000); // Update weather every 5 mins
+        setInterval(updateClock, 1000); // Clock updates every second now
+    }
+    
+    // --- Weather Functions ---
+    function simulateMumbaiWeather() {
+        const temp = 28 + Math.floor(Math.random() * 5); // Simulate temp between 28-32°C
+        const conditions = [
+            { main: 'Haze', description: 'haze', icon: '50d' },
+            { main: 'Clear', description: 'clear sky', icon: '01d' },
+            { main: 'Clouds', description: 'few clouds', icon: '02d' },
+            { main: 'Rain', description: 'light rain', icon: '10d' }
+        ];
+        const randomCondition = conditions[Math.floor(Math.random() * conditions.length)];
+
+        weatherDisplay.innerHTML = `<img src="https://openweathermap.org/img/wn/${randomCondition.icon}.png" alt="${randomCondition.description}" class="h-8 w-8"> ${temp}°C, ${randomCondition.description} (Simulated)`;
+
+        if (randomCondition.main.toLowerCase().includes('rain')) {
+            toggleRain(true);
+        } else {
+            toggleRain(false);
+        }
+
+        const now = new Date();
+        sunrise = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 6, 30, 0);
+        sunset = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 19, 0, 0);
+        applyTheme();
+    }
+
+    async function fetchWeather() {
+        if (!WEATHER_API_KEY) {
+            simulateMumbaiWeather();
+            return;
+        }
+        const url = `https://api.openweathermap.org/data/2.5/weather?lat=${MUMBAI_LAT}&lon=${MUMBAI_LON}&appid=${WEATHER_API_KEY}&units=metric`;
+        try {
+            const response = await fetch(url);
+            if (!response.ok) throw new Error(`Weather API Error: ${response.statusText}`);
+            const data = await response.json();
+
+            const weatherCondition = data.weather[0].main.toLowerCase();
+            const temp = Math.round(data.main.temp);
+            weatherDisplay.innerHTML = `<img src="https://openweathermap.org/img/wn/${data.weather[0].icon}.png" alt="${data.weather[0].description}" class="h-8 w-8"> ${temp}°C, ${data.weather[0].description}`;
+            
+            toggleRain(weatherCondition.includes('rain') || weatherCondition.includes('drizzle') || weatherCondition.includes('thunderstorm'));
+            
+            sunrise = new Date(data.sys.sunrise * 1000);
+            sunset = new Date(data.sys.sunset * 1000);
+            applyTheme();
+
+        } catch (error) {
+            console.error("Failed to fetch weather:", error);
+            weatherDisplay.textContent = "Weather data unavailable. Using simulation.";
+            simulateMumbaiWeather();
+        }
+    }
+
+    function masterGameLoop() {
+        if (!emergencyStopActive) {
+            Object.keys(trains).forEach(trainId => {
+                const train = trains[trainId];
+                if (train.isRunning) {
+                    const increment = (train.speed * train.speedModifier / 200) * train.direction;
+                    train.position += increment;
+                    if (train.position > 96 || train.position < 4) train.direction *= -1;
+                    checkPlatforms(trainId);
+                    checkSignalsAndPoints(trainId);
+                    checkCollisions(trainId);
+                }
+                checkRouteUnlocking(trainId);
+                checkPlatformClearance(trainId);
+                checkIfAtPoint(trainId);
+                updateTrainPosition(trainId);
+            });
+        }
+        requestAnimationFrame(masterGameLoop);
+    }
+    
+    function updateTrainPosition(trainId) { /* ... unchanged ... */ const train = trains[trainId], el = trainElements[trainId], track = trackLayout[train.currentTrack]; if (track && el) { el.style.left = `calc(${train.position}% - 25px)`; el.style.top = `calc(${track.y}% - 8px)`; el.querySelector('.headlight').style.left = train.direction === 1 ? '42px' : '2px'; } }
+    
+    // --- Event & State Checks ---
+    function checkCollisions(trainId) { /* ... unchanged ... */ const cur = trains[trainId]; if (!cur.isRunning) return; for (const otherId in trains) { if (trainId === otherId) continue; const other = trains[otherId]; if (cur.currentTrack === other.currentTrack) { const dist = other.position - cur.position, isAhead = cur.direction === 1 ? dist > 0 : dist < 0; if (isAhead && Math.abs(dist) < 5) stopTrain(trainId, `stopped for ${otherId.toUpperCase()}.`); } } }
+    function checkPlatforms(trainId) { /* ... unchanged ... */ const train = trains[trainId]; for (const pfId in platforms) { const pf = platforms[pfId]; const stopPos = train.direction === 1 ? pf.range[0] + 2 : pf.range[1] - 2; if (train.currentTrack === pf.track && Math.abs(train.position - stopPos) < 1 && train.status !== 'Dwelling' && train.lastPlatformArrival !== pfId) { stopTrain(trainId, `arrived at ${pfId}.`); train.status = 'Dwelling'; train.lastPlatformArrival = pfId; announce(`Train ${trainId.replace('train', '')}, has arrived at, ${pfId.replace('-', ' platform ')}.`); updatePaxInfo(); if (trainId === selectedTrainId) updateControlsForSelectedTrain(); train.dwellTimer = setTimeout(() => { train.status = 'Idle'; logEvent(`${trainId.toUpperCase()} dwelling complete at ${pfId}.`); announce(`Train ${trainId.replace('train', '')}, on platform ${pfId.split('-')[1]}, is ready for departure.`); updatePaxInfo(); if (trainId === selectedTrainId) updateControlsForSelectedTrain(); }, DWELL_TIME); return; } } }
+    function checkPlatformClearance(trainId) { /* ... unchanged ... */ const train = trains[trainId]; if (train.lastPlatformArrival) { const pf = platforms[train.lastPlatformArrival]; if (train.position < pf.range[0] || train.position > pf.range[1]) { train.lastPlatformArrival = null; } } }
+    function checkIfAtPoint(trainId) { /* ... unchanged ... */ const train = trains[trainId]; train.atPoint = null; for(const pId in points) { const p = points[pId]; if(train.currentTrack === p.track && Math.abs(train.position - p.position) < 1) { train.atPoint = pId; return; } } }
+
+    function checkSignalsAndPoints(trainId) {
+        const train = trains[trainId];
+        const offset = train.direction * 1.5;
+
+        const highPriorityTrain = Object.values(trains).find(t => t.priority === 'high' && t.isRunning);
+
+        const stopForSignal = (signalId) => {
+            const signal = signals[signalId];
+            if (signal.failed || signal.element.classList.contains('red')) return true;
+            if (highPriorityTrain && highPriorityTrain.id !== trainId && train.priority === 'normal' && ['sig-by-s-39', 'sig-by-s-34', 'sig-by-s-25'].includes(signalId)) {
+                logEvent(`${trainId.toUpperCase()} held at ${signalId.replace('sig-','').toUpperCase()} for high-priority train.`, 'warn');
+                return true;
+            }
+            return false;
+        };
+        
+        const checkPoint = (track, pId, sId, nextTrack) => { 
+            const p=points[pId]; 
+            if (train.currentTrack===track && Math.abs(train.position-(p.position-offset))<0.5) { 
+                if(stopForSignal(sId)) {
+                    stopTrain(trainId,`stopped at signal ${sId.split('-').pop().toUpperCase()}.`);
+                } else { 
+                    p.lockedBy = trainId;
+                    p.element.classList.add('locked');
+                    logEvent(`Point ${pId.split('-').pop().toUpperCase()} locked by ${trainId.toUpperCase()}.`);
+
+                    if (p.state==='diverted') { 
+                        train.currentTrack=nextTrack; 
+                        train.speedModifier = 0.4;
+                        logEvent(`${trainId.toUpperCase()} diverted via ${pId.toUpperCase()}. Speed restricted.`);
+                    } 
+                    setTimeout(()=>setSignalRed(sId), 500); 
+                } 
+            } 
+        }; 
+        checkPoint('track-up-ll','point-s39','sig-by-s-39','track-dn-ll'); 
+        checkPoint('track-up-th','point-s34','sig-by-s-34','track-up-ll'); 
+        checkPoint('track-dn-th', 'point-s25', 'sig-by-s-25', 'track-up-th');
+        
+        const checkSignal = (track,pos,dir,sId) => { if(train.currentTrack===track && train.direction===dir && Math.abs(train.position-(pos-offset))<0.5) { if(stopForSignal(sId)) stopTrain(trainId,`stopped at signal ${sId.replace('sig-','').toUpperCase()}.`); else setTimeout(()=>setSignalRed(sId), 500); } }; 
+        checkSignal('track-dn-ll',15,-1,'sig-l014'); checkSignal('track-dn-ll',55,1,'sig-l021'); checkSignal('track-up-ll',20,-1,'sig-by-s-16'); checkSignal('track-up-th',75,1,'sig-iby-s-46'); checkSignal('track-up-ll',25,1,'sig-by-pf2-dep'); checkSignal('track-dn-th',25,1,'sig-by-pf3-dep'); checkSignal('track-dn-ll',65,-1,'sig-ckl-pf1-dep'); checkSignal('track-up-ll',75,-1,'sig-ckl-pf2-dep');
+    }
+
+    function checkRouteUnlocking(trainId) {
+        const train = trains[trainId];
+        for (const pId in points) {
+            const p = points[pId];
+            if (p.lockedBy === trainId) {
+                const distancePastPoint = (train.position - p.position) * train.direction;
+                if (distancePastPoint > 5) {
+                    p.lockedBy = null;
+                    p.element.classList.remove('locked');
+                    train.speedModifier = 1;
+                    logEvent(`Point ${pId.split('-').pop().toUpperCase()} unlocked by ${trainId.toUpperCase()}.`);
+                }
+            }
+        }
+    }
+
+    // --- Controls & UI ---
+    function stopTrain(trainId, reason = "") { const train = trains[trainId]; if (!train.isRunning) return; train.isRunning = false; train.status = 'Idle'; if (reason) logEvent(`${trainId.toUpperCase()} ${reason}`, 'warn'); updatePaxInfo(); if (selectedTrainId === trainId) updateControlsForSelectedTrain(); }
+    function startSelectedTrain() { /* ... unchanged ... */ const train = trains[selectedTrainId]; if (train.status === 'Dwelling') return; let atPfId = null; for (const pfId in platforms) { const pf = platforms[pfId]; if (train.currentTrack===pf.track && train.position>=pf.range[0] && train.position<=pf.range[1]) { atPfId = pfId; break; } } train.isRunning = true; train.status = 'Running'; playSound('horn'); if (atPfId) logEvent(`${selectedTrainId.toUpperCase()} has departed from ${atPfId}.`, 'ok'); else logEvent(`${selectedTrainId.toUpperCase()} has started.`, 'ok'); updatePaxInfo(); updateControlsForSelectedTrain(); }
+    function reverseDirectionForSelected() { /* ... unchanged ... */ const train=trains[selectedTrainId]; if(train.isRunning) { logEvent("Cannot reverse a running train.", "warn"); return; } train.direction *= -1; updateControlsForSelectedTrain(); }
+    function setSignalRed(id) { /* ... unchanged ... */ signals[id].element.classList.remove('green'); signals[id].element.classList.add('red'); }
+    function toggleSignal(id) { if (signals[id].failed) { logEvent(`Signal ${id.replace('sig-','').toUpperCase()} has failed and cannot be operated.`, 'warn'); return; } playSound('click'); const s = signals[id].element; if(s.classList.contains('red')){s.classList.remove('red');s.classList.add('green');}else{s.classList.remove('green');s.classList.add('red');} }
+    
+    function togglePoint(id) {
+        const p = points[id];
+        if (p.lockedBy) {
+            logEvent(`Point ${id.split('-').pop().toUpperCase()} is locked by ${p.lockedBy.toUpperCase()}.`, 'warn');
+            return;
+        }
+        playSound('click'); 
+        p.state = (p.state === 'straight') ? 'diverted' : 'straight'; 
+        p.element.className = `point ${p.state}`; 
+        p.divergeElement.classList.toggle('connected'); 
+        logEvent(`Point ${id.split('-').pop().toUpperCase()} set to ${p.state}.`);
+        if (id === 'point-s39') setSignalRed('sig-by-s-39');
+        if (id === 'point-s34') setSignalRed('sig-by-s-34');
+        if (id === 'point-s25') setSignalRed('sig-by-s-25');
+    }
+    
+    function updatePaxInfo() { /* ... unchanged ... */ paxInfo.innerHTML = '<p class="font-bold text-blue-300">Platform Status:</p>'; Object.keys(platforms).forEach(pfId => { let trainOnPlatform = null; for (const trainId in trains) { const train = trains[trainId]; const pf = platforms[pfId]; if (train.currentTrack === pf.track && train.position >= pf.range[0] && train.position <= pf.range[1]) { trainOnPlatform = {id: trainId.toUpperCase(), status: train.status}; break; } } if (trainOnPlatform) { const color = trainOnPlatform.status === 'Dwelling' ? 'text-yellow-400' : 'text-green-400'; paxInfo.innerHTML += `<p>${pfId}: <span class="${color}">${trainOnPlatform.id} (${trainOnPlatform.status})</span></p>`; } else { paxInfo.innerHTML += `<p>${pfId}: <span class="text-gray-500">Empty</span></p>`; } }); }
+    function updateControlsForSelectedTrain() { const train = trains[selectedTrainId]; speedSlider.value = train.speed; speedValue.textContent = train.speed; startBtn.disabled = train.isRunning || train.status === 'Dwelling' || emergencyStopActive; stopBtn.disabled = !train.isRunning || emergencyStopActive; prioritySelect.value = train.priority; updateStatusDisplay(); }
+    function updateStatusDisplay() { const train = trains[selectedTrainId]; let statusText = train.isRunning ? '<span class="text-green-400">Running</span>' : (train.status === 'Dwelling' ? '<span class="text-yellow-400">Dwelling</span>' : '<span class="text-red-400">Stopped</span>'); const dirText = train.direction === 1 ? 'East &rarr;' : 'West &larr;'; const priorityText = train.priority === 'high' ? ' <span class="text-yellow-400">[P]</span>' : ''; statusDisplay.innerHTML = `<span>${selectedTrainId.toUpperCase()}: ${statusText}${priorityText}</span><span class="text-gray-400">|</span><span>${train.currentTrack.replace('track-','').toUpperCase()}</span><span class="text-gray-400">|</span><span>${dirText}</span>`; }
+    
+    // --- Scenario Functions ---
+    function toggleEmergencyStop() { emergencyStopActive = !emergencyStopActive; if (emergencyStopActive) { emergencyStopBtn.textContent = "RESUME"; emergencyStopBtn.classList.remove('emergency-stop-btn', 'bg-red-800', 'hover:bg-red-700'); emergencyStopBtn.classList.add('bg-green-600', 'hover:bg-green-500'); Object.keys(trains).forEach(id => { if (trains[id].isRunning) stopTrain(id, 'Emergency Stopped.'); }); logEvent('--- EMERGENCY STOP ACTIVATED ---', 'warn'); announce("Attention, all trains, emergency stop activated."); } else { emergencyStopBtn.textContent = "HALT"; emergencyStopBtn.classList.add('emergency-stop-btn', 'bg-red-800', 'hover:bg-red-700'); emergencyStopBtn.classList.remove('bg-green-600', 'hover:bg-green-500'); logEvent('--- Operations Resumed ---', 'ok'); announce("Emergency stop lifted. Operations may resume."); } updateControlsForSelectedTrain(); }
+    function failSelectedSignal() { const id = signalFailSelect.value; if (!id) return; signals[id].failed = true; signals[id].element.classList.add('failed'); setSignalRed(id); logEvent(`Signal ${id.replace('sig-','').toUpperCase()} has failed!`, 'warn'); }
+    function fixSelectedSignal() { const id = signalFailSelect.value; if (!id) return; signals[id].failed = false; signals[id].element.classList.remove('failed'); logEvent(`Signal ${id.replace('sig-','').toUpperCase()} has been repaired.`, 'ok'); }
+    
+    // --- Ambiance & Logging ---
+    function applyTheme() {
+        document.querySelectorAll('.theme-controls .control-button').forEach(btn => btn.classList.remove('active'));
+        if (timeMode === 'day') {
+            body.classList.remove('is-night');
+            themeDayBtn.classList.add('active');
+        } else if (timeMode === 'night') {
+            body.classList.add('is-night');
+            themeNightBtn.classList.add('active');
+        } else { // auto
+            themeAutoBtn.classList.add('active');
+            if (sunrise && sunset) {
+                if (simTime > sunrise && simTime < sunset) {
+                    body.classList.remove('is-night');
+                } else {
+                    body.classList.add('is-night');
+                }
+            }
+        }
+    }
+
+    function updateClock() {
+        simTime.setSeconds(simTime.getSeconds() + 1); // Real-time clock progression
+        simClock.textContent = simTime.toTimeString().split(' ')[0];
+        if (timeMode === 'auto') {
+            applyTheme();
+        }
+    }
+    
+    function toggleRain(isRaining) {
+        const currentlyRaining = rainContainer.children.length > 0;
+        if (isRaining && !currentlyRaining) {
+            for (let i = 0; i < 100; i++) { 
+                const drop = document.createElement('div'); 
+                drop.className = 'raindrop'; 
+                drop.style.left = `${Math.random()*100}%`; 
+                drop.style.animationDuration = `${0.5 + Math.random()*0.5}s`; 
+                drop.style.animationDelay = `${Math.random()*5}s`; 
+                rainContainer.appendChild(drop); 
+            }
+        } else if (!isRaining && currentlyRaining) {
+            rainContainer.innerHTML = '';
+        }
+    }
+    
+    function logEvent(msg, type = 'info') { const time = new Date().toTimeString().split(' ')[0]; const color = type === 'warn' ? 'text-yellow-400' : (type === 'ok' ? 'text-green-400' : 'text-blue-300'); eventLog.innerHTML += `<p><span class="time">[${time}]</span> <span class="${color}">${msg}</span></p>`; eventLog.scrollTop = eventLog.scrollHeight; }
+    function announce(text) { /* ... unchanged ... */ if (synth.speaking) return; const utterance = new SpeechSynthesisUtterance(text); utterance.rate = 1.1; utterance.pitch = 1; synth.speak(utterance); }
+    function resetSimulation() {
+        trains = JSON.parse(JSON.stringify(initialTrainStates)); 
+        Object.keys(trains).forEach(id => { clearTimeout(trains[id].dwellTimer); trains[id].dwellTimer = null; updateTrainPosition(id); }); 
+        Object.keys(signals).forEach(id => { signals[id].element.className = 'signal red'; signals[id].failed = false; }); 
+        Object.keys(points).forEach(id => { let p = points[id]; p.state = 'straight'; p.element.className = `point straight`; p.divergeElement.classList.remove('connected'); p.lockedBy = null; }); 
+        if(emergencyStopActive) toggleEmergencyStop(); 
+        simTime = new Date(); 
+        logEvent('Simulator Initialized. System Ready.'); 
+        fetchWeather();
+        timeMode = 'auto';
+        applyTheme();
+        updatePaxInfo(); 
+        updateControlsForSelectedTrain(); 
+    }
+    
+    initialize();
+});
+</script>
+
+</body>
+</html>
